@@ -23,6 +23,9 @@ class SaaSTenant(Document):
         if frappe.db.exists("SaaS Tenant", {"subdomain": self.subdomain, "name": ["!=", self.name]}):
             frappe.throw("Subdomain already taken.")
 
+    # ---------------------------
+    # helpers
+    # ---------------------------
     def _bench(self):
         bench = which("bench") or "/usr/local/bin/bench"
         if not os.path.exists(bench):
@@ -44,13 +47,32 @@ class SaaSTenant(Document):
             raise frappe.ValidationError((p.stderr or p.stdout or "bench failed").strip())
         return p
 
+    # ---------------------------
+    # public methods
+    # ---------------------------
     @frappe.whitelist()
-    def provision_site(self):
+    def enqueue_provision(self):
+        """Queue provisioning in background (long queue)"""
         frappe.only_for("System Manager")
 
         if self.status not in ("Draft", "Failed"):
             frappe.throw(f"Cannot provision in status: {self.status}")
 
+        self.db_set("status", "Queued")
+        self.db_set("last_error", None)
+
+        frappe.enqueue(
+            "saas_manager.saas_manager.doctype.saas_tenant.saas_tenant.run_provision_job",
+            queue="long",
+            tenant_name=self.name,
+        )
+
+        return {"tenant_id": self.name, "status": "Queued"}
+
+    # ---------------------------
+    # internal provisioning (called by worker)
+    # ---------------------------
+    def provision_site_internal(self):
         # domain
         base_domain = (self.base_domain or "local").strip().lower()
         site_name = f"{self.subdomain}.{base_domain}"
@@ -61,38 +83,50 @@ class SaaSTenant(Document):
 
         bench_path = frappe.utils.get_bench_path()
         cwd = bench_path
-
         bench, env = self._bench()
 
         admin_pwd = self.get_password("admin_password")
-        db_root_user = "root"
-        db_root_password = "admin"  # <-- EXACTEMENT comme ta commande manuelle (à externaliser après)
 
-        # apps to install at creation (same as your manual command)
-        apps_to_install = ["erpnext"]
+        # EXACT MATCH with your manual command
+        db_root_user = "root"
+        db_root_password = "admin"
+        mariadb_scope = "%"
+
+        # Apps to install at creation
+        apps_to_install = ["erpnext"]  # add more if needed: ["erpnext", "print_designer"]
 
         cmd = [
             bench,
             "new-site",
-            "--mariadb-user-host-login-scope=%",
+            f"--mariadb-user-host-login-scope={mariadb_scope}",
             f"--admin-password={admin_pwd}",
             f"--db-root-username={db_root_user}",
             f"--db-root-password={db_root_password}",
         ]
 
         for app in apps_to_install:
-            cmd += [f"--install-app", app]
+            cmd += ["--install-app", app]
 
         cmd += [site_name]
 
-        try:
-            # create site + install apps
-            self._run(cmd, cwd=cwd, env=env)
+        # Create site + install apps
+        self._run(cmd, cwd=cwd, env=env)
 
-            self.db_set("status", "Active")
-            self.db_set("site_url", f"https://{site_name}")
-            return {"site_name": site_name, "site_url": f"https://{site_name}"}
+        # Done
+        self.db_set("status", "Active")
+        self.db_set("site_url", f"https://{site_name}")
 
-        except Exception:
-            self.db_set("status", "Failed")
-            raise
+        return {"site_name": site_name, "site_url": f"https://{site_name}"}
+
+
+def run_provision_job(tenant_name):
+    """Background worker entrypoint"""
+    tenant = frappe.get_doc("SaaS Tenant", tenant_name)
+    try:
+        tenant.provision_site_internal()
+    except Exception as e:
+        tenant.db_set("status", "Failed")
+        # last_error is already set if bench failed, but keep safety
+        if not tenant.last_error:
+            tenant.db_set("last_error", str(e)[:14000])
+        raise
