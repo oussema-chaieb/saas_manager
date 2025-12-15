@@ -52,9 +52,6 @@ class SaaSTenant(Document):
     # ---------------------------
     @frappe.whitelist()
     def enqueue_provision(self):
-        """Queue provisioning in background (long queue)"""
-        frappe.only_for("System Manager")
-
         if self.status not in ("Draft", "Failed"):
             frappe.throw(f"Cannot provision in status: {self.status}")
 
