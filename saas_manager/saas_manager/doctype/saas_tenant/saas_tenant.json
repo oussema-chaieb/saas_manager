@@ -7,9 +7,13 @@
  "field_order": [
   "company_name",
   "admin_password",
+  "site_url",
+  "status",
   "column_break_tqzz",
   "subdomain",
-  "status"
+  "site_name",
+  "base_domain",
+  "last_error"
  ],
  "fields": [
   {
@@ -41,13 +45,37 @@
    "fieldname": "status",
    "fieldtype": "Select",
    "label": "Status",
-   "options": "Draft\nProvisioning\nActive\nFailed"
+   "options": "Draft\nProvisioning\nActive\nFailed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "site_url",
+   "fieldtype": "Data",
+   "label": "Site Url",
+   "read_only": 1
+  },
+  {
+   "fieldname": "site_name",
+   "fieldtype": "Data",
+   "label": "Site Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "base_domain",
+   "fieldtype": "Data",
+   "label": "Base Domain"
+  },
+  {
+   "fieldname": "last_error",
+   "fieldtype": "Small Text",
+   "label": "Last Error",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-12-15 13:53:28.762203",
+ "modified": "2025-12-15 14:23:09.674904",
  "modified_by": "Administrator",
  "module": "Saas Manager",
  "name": "SaaS Tenant",
